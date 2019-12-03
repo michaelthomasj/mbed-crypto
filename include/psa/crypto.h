@@ -3502,9 +3502,9 @@ psa_status_t psa_key_derivation_output_bytes(
  *   length is determined by the curve, and sets the mandatory bits
  *   accordingly. That is:
  *
- *     - #PSA_ECC_CURVE_CURVE25519: draw a 32-byte string
+ *     - Curve25519 (#PSA_ECC_CURVE_XED, 255 bits): draw a 32-byte string
  *       and process it as specified in RFC 7748 &sect;5.
- *     - #PSA_ECC_CURVE_CURVE448: draw a 56-byte string
+ *     - Curve448 (#PSA_ECC_CURVE_XED, 448 bits): draw a 56-byte string
  *       and process it as specified in RFC 7748 &sect;5.
  *
  * - For key types for which the key is represented by a single sequence of
