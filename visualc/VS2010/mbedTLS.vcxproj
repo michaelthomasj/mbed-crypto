@@ -212,7 +212,6 @@
     <ClInclude Include="..\..\include\mbedtls\xtea.h" />
     <ClInclude Include="..\..\include\psa\crypto.h" />
     <ClInclude Include="..\..\include\psa\crypto_accel_driver.h" />
-    <ClInclude Include="..\..\include\psa\crypto_compat.h" />
     <ClInclude Include="..\..\include\psa\crypto_driver_common.h" />
     <ClInclude Include="..\..\include\psa\crypto_entropy_driver.h" />
     <ClInclude Include="..\..\include\psa\crypto_extra.h" />
@@ -270,6 +269,7 @@
     <ClCompile Include="..\..\library\md2.c" />
     <ClCompile Include="..\..\library\md4.c" />
     <ClCompile Include="..\..\library\md5.c" />
+    <ClCompile Include="..\..\library\md_wrap.c" />
     <ClCompile Include="..\..\library\memory_buffer_alloc.c" />
     <ClCompile Include="..\..\library\nist_kw.c" />
     <ClCompile Include="..\..\library\oid.c" />

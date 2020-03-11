@@ -5,13 +5,6 @@
 #include "psa_crypto_se.h"
 #include "psa_crypto_storage.h"
 
-/* Invasive peeking: check the persistent data */
-#if defined(MBEDTLS_PSA_ITS_FILE_C)
-#include "psa_crypto_its.h"
-#else /* Native ITS implementation */
-#include "psa/error.h"
-#include "psa/internal_trusted_storage.h"
-#endif
 
 
 /****************************************************************/
@@ -83,28 +76,6 @@
 
 
 /****************************************************************/
-/* Domain support functions */
-/****************************************************************/
-
-/* Return the exact bit size given a curve family and a byte length. */
-static size_t ecc_curve_bits( psa_ecc_curve_t curve, size_t data_length )
-{
-    switch( curve )
-    {
-        case PSA_ECC_CURVE_SECP_R1:
-            if( data_length == PSA_BYTES_TO_BITS( 521 ) )
-                return( 521 );
-            break;
-        case PSA_ECC_CURVE_MONTGOMERY:
-            if( data_length == PSA_BYTES_TO_BITS( 255 ) )
-                return( 255 );
-    }
-    /* If not listed above, assume a multiple of 8 bits. */
-    return( PSA_BYTES_TO_BITS( data_length ) );
-}
-
-
-/****************************************************************/
 /* Miscellaneous driver methods */
 /****************************************************************/
 
@@ -119,13 +90,11 @@ static validate_slot_number_directions_t validate_slot_number_directions;
 /* Validate a choice of slot number as directed. */
 static psa_status_t validate_slot_number_as_directed(
     psa_drv_se_context_t *context,
-    void *persistent_data,
     const psa_key_attributes_t *attributes,
     psa_key_creation_method_t method,
     psa_key_slot_number_t slot_number )
 {
     (void) context;
-    (void) persistent_data;
     (void) attributes;
     DRIVER_ASSERT_RETURN( slot_number ==
                           validate_slot_number_directions.slot_number );
@@ -135,11 +104,6 @@ static psa_status_t validate_slot_number_as_directed(
 }
 
 /* Allocate slot numbers with a monotonic counter. */
-static psa_key_slot_number_t shadow_counter;
-static void counter_reset( void )
-{
-    shadow_counter = 0;
-}
 static psa_status_t counter_allocate( psa_drv_se_context_t *context,
                                       void *persistent_data,
                                       const psa_key_attributes_t *attributes,
@@ -154,7 +118,6 @@ static psa_status_t counter_allocate( psa_drv_se_context_t *context,
     ++*p_counter;
     if( *p_counter == 0 )
         return( PSA_ERROR_INSUFFICIENT_STORAGE );
-    shadow_counter = *p_counter;
     *slot_number = *p_counter;
     return( PSA_SUCCESS );
 }
@@ -230,15 +193,12 @@ static ram_slot_t ram_slots[16];
  * bit vector indicating which slots are in use. */
 typedef uint16_t ram_slot_usage_t;
 
-static ram_slot_usage_t ram_shadow_slot_usage;
-
 static uint8_t ram_min_slot = 0;
 
 static void ram_slots_reset( void )
 {
     memset( ram_slots, 0, sizeof( ram_slots ) );
     ram_min_slot = 0;
-    ram_shadow_slot_usage = 0;
 }
 
 /* Common parts of key creation.
@@ -316,11 +276,7 @@ static psa_status_t ram_import( psa_drv_se_context_t *context,
     if( PSA_KEY_TYPE_IS_UNSTRUCTURED( type ) )
         *bits = PSA_BYTES_TO_BITS( data_length );
     else if ( PSA_KEY_TYPE_IS_ECC_KEY_PAIR( type ) )
-    {
-        *bits = ecc_curve_bits( PSA_KEY_TYPE_GET_CURVE( type ), data_length );
-        if( *bits == 0 )
-            return( PSA_ERROR_DETECTED_BY_DRIVER );
-    }
+        *bits = PSA_ECC_CURVE_BITS( PSA_KEY_TYPE_GET_CURVE( type ) );
     else
     {
         memset( &ram_slots[slot_number], 0, sizeof( ram_slots[slot_number] ) );
@@ -386,7 +342,6 @@ static psa_status_t ram_destroy( psa_drv_se_context_t *context,
     DRIVER_ASSERT_RETURN( slot_number < ARRAY_LENGTH( ram_slots ) );
     memset( &ram_slots[slot_number], 0, sizeof( ram_slots[slot_number] ) );
     *slot_usage &= ~(ram_slot_usage_t)( 1 << slot_number );
-    ram_shadow_slot_usage = *slot_usage;
     return( PSA_SUCCESS );
 }
 
@@ -405,23 +360,18 @@ static psa_status_t ram_allocate( psa_drv_se_context_t *context,
          ++( *slot_number ) )
     {
         if( ! ( *slot_usage & 1 << *slot_number ) )
-        {
-            ram_shadow_slot_usage = *slot_usage;
             return( PSA_SUCCESS );
-        }
     }
     return( PSA_ERROR_INSUFFICIENT_STORAGE );
 }
 
 static psa_status_t ram_validate_slot_number(
     psa_drv_se_context_t *context,
-    void *persistent_data,
     const psa_key_attributes_t *attributes,
     psa_key_creation_method_t method,
     psa_key_slot_number_t slot_number )
 {
     (void) context;
-    (void) persistent_data;
     (void) attributes;
     (void) method;
     if( slot_number >= ARRAY_LENGTH( ram_slots ) )
@@ -447,16 +397,17 @@ static psa_status_t ram_sign( psa_drv_se_context_t *context,
     DRIVER_ASSERT_RETURN( slot_number < ARRAY_LENGTH( ram_slots ) );
     slot = &ram_slots[slot_number];
 
-    psa_set_key_usage_flags( &attributes, PSA_KEY_USAGE_SIGN_HASH );
+    psa_set_key_usage_flags( &attributes, PSA_KEY_USAGE_SIGN );
     psa_set_key_algorithm( &attributes, alg );
     psa_set_key_type( &attributes, slot->type );
     DRIVER_ASSERT( psa_import_key( &attributes,
                                    slot->content,
                                    PSA_BITS_TO_BYTES( slot->bits ),
                                    &handle ) == PSA_SUCCESS );
-    status = psa_sign_hash( handle, alg,
-                            hash, hash_length,
-                            signature, signature_size, signature_length );
+    status = psa_asymmetric_sign( handle, alg,
+                                  hash, hash_length,
+                                  signature, signature_size,
+                                  signature_length );
 
 exit:
     psa_destroy_key( handle );
@@ -480,7 +431,7 @@ static psa_status_t ram_verify( psa_drv_se_context_t *context,
     DRIVER_ASSERT_RETURN( slot_number < ARRAY_LENGTH( ram_slots ) );
     slot = &ram_slots[slot_number];
 
-    psa_set_key_usage_flags( &attributes, PSA_KEY_USAGE_VERIFY_HASH );
+    psa_set_key_usage_flags( &attributes, PSA_KEY_USAGE_VERIFY );
     psa_set_key_algorithm( &attributes, alg );
     psa_set_key_type( &attributes, slot->type );
     DRIVER_ASSERT( psa_import_key( &attributes,
@@ -488,9 +439,9 @@ static psa_status_t ram_verify( psa_drv_se_context_t *context,
                                    PSA_BITS_TO_BYTES( slot->bits ),
                                    &handle ) ==
                    PSA_SUCCESS );
-    status = psa_verify_hash( handle, alg,
-                              hash, hash_length,
-                              signature, signature_length );
+    status = psa_asymmetric_verify( handle, alg,
+                                    hash, hash_length,
+                                    signature, signature_length );
 
 exit:
     psa_destroy_key( handle );
@@ -571,38 +522,6 @@ exit:
     return( ok );
 }
 
-/* Get the file UID corresponding to the specified lifetime.
- * If this changes, the storage format version must change.
- * See psa_get_se_driver_its_file_uid() in psa_crypto_se.c.
- */
-psa_storage_uid_t file_uid_for_lifetime( psa_key_lifetime_t lifetime )
-{
-    if( lifetime > PSA_MAX_SE_LIFETIME )
-        return( 0 );
-    return( 0xfffffe00 + lifetime );
-}
-
-/* Check that the persistent data of a driver has its expected content. */
-static int check_persistent_data( psa_key_lifetime_t lifetime,
-                                  const void *expected_data,
-                                  size_t size )
-{
-    psa_storage_uid_t uid = file_uid_for_lifetime( lifetime );
-    struct psa_storage_info_t info;
-    uint8_t *loaded = NULL;
-    int ok = 0;
-
-    PSA_ASSERT( psa_its_get_info( uid, &info ) );
-    ASSERT_ALLOC( loaded, info.size );
-    PSA_ASSERT( psa_its_get( uid, 0, info.size, loaded, NULL ) );
-    ASSERT_COMPARE( expected_data, size, loaded, info.size );
-    ok = 1;
-
-exit:
-    mbedtls_free( loaded );
-    return( ok );
-}
-
 /* Check that a function's return status is "smoke-free", i.e. that
  * it's an acceptable error code when calling an API function that operates
  * on a key with potentially bogus parameters. */
@@ -676,12 +595,12 @@ static int smoke_test_key( psa_key_handle_t handle )
                                     buffer, sizeof( buffer),
                                     buffer, sizeof( buffer), &length ) );
 
-    SMOKE_ASSERT( psa_sign_hash( handle, PSA_ALG_ECDSA_ANY,
-                                 buffer, 32,
-                                 buffer, sizeof( buffer ), &length ) );
-    SMOKE_ASSERT( psa_verify_hash( handle, PSA_ALG_ECDSA_ANY,
-                                   buffer, 32,
-                                   buffer, sizeof( buffer ) ) );
+    SMOKE_ASSERT( psa_asymmetric_sign( handle, PSA_ALG_ECDSA_ANY,
+                                       buffer, 32,
+                                       buffer, sizeof( buffer ), &length ) );
+    SMOKE_ASSERT( psa_asymmetric_verify( handle, PSA_ALG_ECDSA_ANY,
+                                         buffer, 32,
+                                         buffer, sizeof( buffer ) ) );
 
     SMOKE_ASSERT( psa_asymmetric_encrypt( handle, PSA_ALG_RSA_PKCS1V15_CRYPT,
                                           buffer, 10, NULL, 0,
@@ -857,10 +776,6 @@ void key_creation_import_export( int min_slot, int restart )
     PSA_ASSERT( psa_import_key( &attributes,
                                 key_material, sizeof( key_material ),
                                 &handle ) );
-    if( ! check_persistent_data( lifetime,
-                                 &ram_shadow_slot_usage,
-                                 sizeof( ram_shadow_slot_usage ) ) )
-        goto exit;
 
     /* Maybe restart, to check that the information is saved correctly. */
     if( restart )
@@ -868,10 +783,6 @@ void key_creation_import_export( int min_slot, int restart )
         mbedtls_psa_crypto_free( );
         PSA_ASSERT( psa_register_se_driver( lifetime, &driver ) );
         PSA_ASSERT( psa_crypto_init( ) );
-        if( ! check_persistent_data( lifetime,
-                                     &ram_shadow_slot_usage,
-                                     sizeof( ram_shadow_slot_usage ) ) )
-            goto exit;
         PSA_ASSERT( psa_open_key( id, &handle ) );
     }
 
@@ -894,10 +805,6 @@ void key_creation_import_export( int min_slot, int restart )
 
     PSA_ASSERT( psa_destroy_key( handle ) );
     handle = 0;
-    if( ! check_persistent_data( lifetime,
-                                 &ram_shadow_slot_usage,
-                                 sizeof( ram_shadow_slot_usage ) ) )
-        goto exit;
     TEST_EQUAL( psa_open_key( id, &handle ),
                 PSA_ERROR_DOES_NOT_EXIST );
 
@@ -953,10 +860,6 @@ void key_creation_in_chosen_slot( int slot_arg,
 
     if( status != PSA_SUCCESS )
         goto exit;
-    if( ! check_persistent_data( lifetime,
-                                 &ram_shadow_slot_usage,
-                                 sizeof( ram_shadow_slot_usage ) ) )
-        goto exit;
 
     /* Maybe restart, to check that the information is saved correctly. */
     if( restart )
@@ -964,10 +867,6 @@ void key_creation_in_chosen_slot( int slot_arg,
         mbedtls_psa_crypto_free( );
         PSA_ASSERT( psa_register_se_driver( lifetime, &driver ) );
         PSA_ASSERT( psa_crypto_init( ) );
-        if( ! check_persistent_data( lifetime,
-                                     &ram_shadow_slot_usage,
-                                     sizeof( ram_shadow_slot_usage ) ) )
-            goto exit;
         PSA_ASSERT( psa_open_key( id, &handle ) );
     }
 
@@ -980,10 +879,6 @@ void key_creation_in_chosen_slot( int slot_arg,
 
     PSA_ASSERT( psa_destroy_key( handle ) );
     handle = 0;
-    if( ! check_persistent_data( lifetime,
-                                 &ram_shadow_slot_usage,
-                                 sizeof( ram_shadow_slot_usage ) ) )
-        goto exit;
     TEST_EQUAL( psa_open_key( id, &handle ),
                 PSA_ERROR_DOES_NOT_EXIST );
 
@@ -1023,7 +918,7 @@ void import_key_smoke( int type_arg, int alg_arg,
     psa_set_key_id( &attributes, id );
     psa_set_key_lifetime( &attributes, lifetime );
     psa_set_key_usage_flags( &attributes,
-                             PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH |
+                             PSA_KEY_USAGE_SIGN | PSA_KEY_USAGE_VERIFY |
                              PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT |
                              PSA_KEY_USAGE_EXPORT );
     psa_set_key_algorithm( &attributes, alg );
@@ -1031,9 +926,6 @@ void import_key_smoke( int type_arg, int alg_arg,
     PSA_ASSERT( psa_import_key( &attributes,
                                 key_material->x, key_material->len,
                                 &handle ) );
-    if( ! check_persistent_data( lifetime,
-                                 &shadow_counter, sizeof( shadow_counter ) ) )
-        goto exit;
 
     /* Do stuff with the key. */
     if( ! smoke_test_key( handle ) )
@@ -1043,9 +935,6 @@ void import_key_smoke( int type_arg, int alg_arg,
     mbedtls_psa_crypto_free( );
     PSA_ASSERT( psa_register_se_driver( lifetime, &driver ) );
     PSA_ASSERT( psa_crypto_init( ) );
-    if( ! check_persistent_data( lifetime,
-                                 &shadow_counter, sizeof( shadow_counter ) ) )
-        goto exit;
     PSA_ASSERT( psa_open_key( id, &handle ) );
     if( ! smoke_test_key( handle ) )
         goto exit;
@@ -1053,15 +942,11 @@ void import_key_smoke( int type_arg, int alg_arg,
     /* We're done. */
     PSA_ASSERT( psa_destroy_key( handle ) );
     handle = 0;
-    if( ! check_persistent_data( lifetime,
-                                 &shadow_counter, sizeof( shadow_counter ) ) )
-        goto exit;
     TEST_EQUAL( psa_open_key( id, &handle ),
                 PSA_ERROR_DOES_NOT_EXIST );
 
 exit:
     PSA_DONE( );
-    counter_reset( );
     psa_purge_storage( );
 }
 /* END_CASE */
@@ -1098,7 +983,6 @@ void generate_key_not_supported( int type_arg, int bits_arg )
 
 exit:
     PSA_DONE( );
-    counter_reset( );
     psa_purge_storage( );
 }
 /* END_CASE */
@@ -1132,16 +1016,13 @@ void generate_key_smoke( int type_arg, int bits_arg, int alg_arg )
     psa_set_key_id( &attributes, id );
     psa_set_key_lifetime( &attributes, lifetime );
     psa_set_key_usage_flags( &attributes,
-                             PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH |
+                             PSA_KEY_USAGE_SIGN | PSA_KEY_USAGE_VERIFY |
                              PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT |
                              PSA_KEY_USAGE_EXPORT );
     psa_set_key_algorithm( &attributes, alg );
     psa_set_key_type( &attributes, type );
     psa_set_key_bits( &attributes, bits );
     PSA_ASSERT( psa_generate_key( &attributes, &handle ) );
-    if( ! check_persistent_data( lifetime,
-                                 &shadow_counter, sizeof( shadow_counter ) ) )
-        goto exit;
 
     /* Do stuff with the key. */
     if( ! smoke_test_key( handle ) )
@@ -1151,9 +1032,6 @@ void generate_key_smoke( int type_arg, int bits_arg, int alg_arg )
     mbedtls_psa_crypto_free( );
     PSA_ASSERT( psa_register_se_driver( lifetime, &driver ) );
     PSA_ASSERT( psa_crypto_init( ) );
-    if( ! check_persistent_data( lifetime,
-                                 &shadow_counter, sizeof( shadow_counter ) ) )
-        goto exit;
     PSA_ASSERT( psa_open_key( id, &handle ) );
     if( ! smoke_test_key( handle ) )
         goto exit;
@@ -1161,15 +1039,11 @@ void generate_key_smoke( int type_arg, int bits_arg, int alg_arg )
     /* We're done. */
     PSA_ASSERT( psa_destroy_key( handle ) );
     handle = 0;
-    if( ! check_persistent_data( lifetime,
-                                 &shadow_counter, sizeof( shadow_counter ) ) )
-        goto exit;
     TEST_EQUAL( psa_open_key( id, &handle ),
                 PSA_ERROR_DOES_NOT_EXIST );
 
 exit:
     PSA_DONE( );
-    counter_reset( );
     psa_purge_storage( );
 }
 /* END_CASE */
@@ -1196,7 +1070,7 @@ void sign_verify( int flow,
     psa_key_handle_t sw_handle = 0; /* transparent key */
     psa_key_attributes_t sw_attributes = PSA_KEY_ATTRIBUTES_INIT;
     psa_key_attributes_t drv_attributes;
-    uint8_t signature[PSA_SIGNATURE_MAX_SIZE];
+    uint8_t signature[PSA_ASYMMETRIC_SIGNATURE_MAX_SIZE];
     size_t signature_length;
 
     memset( &driver, 0, sizeof( driver ) );
@@ -1235,7 +1109,7 @@ void sign_verify( int flow,
     /* Prepare to create two keys with the same key material: a transparent
      * key, and one that goes through the driver. */
     psa_set_key_usage_flags( &sw_attributes,
-                             PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH );
+                             PSA_KEY_USAGE_SIGN | PSA_KEY_USAGE_VERIFY );
     psa_set_key_algorithm( &sw_attributes, alg );
     psa_set_key_type( &sw_attributes, type );
     drv_attributes = sw_attributes;
@@ -1294,42 +1168,42 @@ void sign_verify( int flow,
         case SIGN_IN_DRIVER_AND_PARALLEL_CREATION:
         case SIGN_IN_DRIVER_THEN_EXPORT_PUBLIC:
             PSA_ASSERT_VIA_DRIVER(
-                psa_sign_hash( drv_handle,
-                               alg,
-                               input->x, input->len,
-                               signature, sizeof( signature ),
-                               &signature_length ),
+                psa_asymmetric_sign( drv_handle,
+                                     alg,
+                                     input->x, input->len,
+                                     signature, sizeof( signature ),
+                                     &signature_length ),
                 PSA_SUCCESS );
             break;
         case SIGN_IN_SOFTWARE_AND_PARALLEL_CREATION:
-            PSA_ASSERT( psa_sign_hash( sw_handle,
-                                       alg,
-                                       input->x, input->len,
-                                       signature, sizeof( signature ),
-                                       &signature_length ) );
+            PSA_ASSERT( psa_asymmetric_sign( sw_handle,
+                                             alg,
+                                             input->x, input->len,
+                                             signature, sizeof( signature ),
+                                             &signature_length ) );
             break;
     }
 
     /* Verify with both keys. */
-    PSA_ASSERT( psa_verify_hash( sw_handle, alg,
-                                 input->x, input->len,
-                                 signature, signature_length ) );
+    PSA_ASSERT( psa_asymmetric_verify( sw_handle, alg,
+                                       input->x, input->len,
+                                       signature, signature_length ) );
     PSA_ASSERT_VIA_DRIVER(
-        psa_verify_hash( drv_handle, alg,
-                         input->x, input->len,
-                         signature, signature_length ),
+        psa_asymmetric_verify( drv_handle, alg,
+                               input->x, input->len,
+                               signature, signature_length ),
         PSA_SUCCESS );
 
     /* Change the signature and verify again. */
     signature[0] ^= 1;
-    TEST_EQUAL( psa_verify_hash( sw_handle, alg,
-                                 input->x, input->len,
-                                 signature, signature_length ),
+    TEST_EQUAL( psa_asymmetric_verify( sw_handle, alg,
+                                       input->x, input->len,
+                                       signature, signature_length ),
                 PSA_ERROR_INVALID_SIGNATURE );
     PSA_ASSERT_VIA_DRIVER(
-        psa_verify_hash( drv_handle, alg,
-                         input->x, input->len,
-                         signature, signature_length ),
+        psa_asymmetric_verify( drv_handle, alg,
+                               input->x, input->len,
+                               signature, signature_length ),
         PSA_ERROR_INVALID_SIGNATURE );
 
 exit:

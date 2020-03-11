@@ -51,7 +51,6 @@
 #endif
 
 #include "mbedtls/platform_util.h"
-#include "mbedtls/error.h"
 
 /* Parameter validation macros based on platform_util.h */
 #define ECDSA_VALIDATE_RET( cond )    \
@@ -230,7 +229,7 @@ static void ecdsa_restart_det_free( mbedtls_ecdsa_restart_det_ctx *ctx )
 static int derive_mpi( const mbedtls_ecp_group *grp, mbedtls_mpi *x,
                        const unsigned char *buf, size_t blen )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t n_size = ( grp->nbits + 7 ) / 8;
     size_t use_size = blen > n_size ? n_size : blen;
 
@@ -298,7 +297,7 @@ static int ecdsa_sign_restartable( mbedtls_ecp_group *grp,
     *p_sign_tries = 0;
     do
     {
-        if( (*p_sign_tries)++ > 10 )
+        if( *p_sign_tries++ > 10 )
         {
             ret = MBEDTLS_ERR_ECP_RANDOM_FAILED;
             goto cleanup;
@@ -311,7 +310,7 @@ static int ecdsa_sign_restartable( mbedtls_ecp_group *grp,
         *p_key_tries = 0;
         do
         {
-            if( (*p_key_tries)++ > 10 )
+            if( *p_key_tries++ > 10 )
             {
                 ret = MBEDTLS_ERR_ECP_RANDOM_FAILED;
                 goto cleanup;
@@ -364,7 +363,6 @@ modn:
         MBEDTLS_MPI_CHK( mbedtls_mpi_add_mpi( &e, &e, s ) );
         MBEDTLS_MPI_CHK( mbedtls_mpi_mul_mpi( &e, &e, &t ) );
         MBEDTLS_MPI_CHK( mbedtls_mpi_mul_mpi( pk, pk, &t ) );
-        MBEDTLS_MPI_CHK( mbedtls_mpi_mod_mpi( pk, pk, &grp->N ) );
         MBEDTLS_MPI_CHK( mbedtls_mpi_inv_mod( s, pk, &grp->N ) );
         MBEDTLS_MPI_CHK( mbedtls_mpi_mul_mpi( s, s, &e ) );
         MBEDTLS_MPI_CHK( mbedtls_mpi_mod_mpi( s, s, &grp->N ) );
@@ -431,7 +429,7 @@ static int ecdsa_sign_det_restartable( mbedtls_ecp_group *grp,
                     void *p_rng_blind,
                     mbedtls_ecdsa_restart_ctx *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_hmac_drbg_context rng_ctx;
     mbedtls_hmac_drbg_context *p_rng = &rng_ctx;
     unsigned char data[2 * MBEDTLS_ECP_MAX_BYTES];
@@ -601,7 +599,7 @@ static int ecdsa_verify_restartable( mbedtls_ecp_group *grp,
                                      const mbedtls_mpi *r, const mbedtls_mpi *s,
                                      mbedtls_ecdsa_restart_ctx *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_mpi e, s_inv, u1, u2;
     mbedtls_ecp_point R;
     mbedtls_mpi *pu1 = &u1, *pu2 = &u2;
@@ -725,7 +723,7 @@ int mbedtls_ecdsa_verify( mbedtls_ecp_group *grp,
 static int ecdsa_signature_to_asn1( const mbedtls_mpi *r, const mbedtls_mpi *s,
                                     unsigned char *sig, size_t *slen )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     unsigned char buf[MBEDTLS_ECDSA_MAX_LEN];
     unsigned char *p = buf + sizeof( buf );
     size_t len = 0;
@@ -754,7 +752,7 @@ int mbedtls_ecdsa_write_signature_restartable( mbedtls_ecdsa_context *ctx,
                            void *p_rng,
                            mbedtls_ecdsa_restart_ctx *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_mpi r, s;
     ECDSA_VALIDATE_RET( ctx  != NULL );
     ECDSA_VALIDATE_RET( hash != NULL );
@@ -847,7 +845,7 @@ int mbedtls_ecdsa_read_signature_restartable( mbedtls_ecdsa_context *ctx,
                           const unsigned char *sig, size_t slen,
                           mbedtls_ecdsa_restart_ctx *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     unsigned char *p = (unsigned char *) sig;
     const unsigned char *end = sig + slen;
     size_t len;
@@ -927,7 +925,7 @@ int mbedtls_ecdsa_genkey( mbedtls_ecdsa_context *ctx, mbedtls_ecp_group_id gid,
  */
 int mbedtls_ecdsa_from_keypair( mbedtls_ecdsa_context *ctx, const mbedtls_ecp_keypair *key )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     ECDSA_VALIDATE_RET( ctx != NULL );
     ECDSA_VALIDATE_RET( key != NULL );
 

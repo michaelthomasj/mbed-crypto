@@ -27,7 +27,6 @@
 
 #if defined(MBEDTLS_PK_C)
 #include "mbedtls/pk_internal.h"
-#include "mbedtls/error.h"
 
 /* Even if RSA not activated, for the sake of RSA-alt */
 #include "mbedtls/rsa.h"
@@ -84,7 +83,7 @@ static int rsa_verify_wrap( void *ctx, mbedtls_md_type_t md_alg,
                    const unsigned char *hash, size_t hash_len,
                    const unsigned char *sig, size_t sig_len )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_rsa_context * rsa = (mbedtls_rsa_context *) ctx;
     size_t rsa_len = mbedtls_rsa_get_len( rsa );
 
@@ -249,7 +248,7 @@ static int eckey_verify_wrap( void *ctx, mbedtls_md_type_t md_alg,
                        const unsigned char *hash, size_t hash_len,
                        const unsigned char *sig, size_t sig_len )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_ecdsa_context ecdsa;
 
     mbedtls_ecdsa_init( &ecdsa );
@@ -267,7 +266,7 @@ static int eckey_sign_wrap( void *ctx, mbedtls_md_type_t md_alg,
                    unsigned char *sig, size_t *sig_len,
                    int (*f_rng)(void *, unsigned char *, size_t), void *p_rng )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_ecdsa_context ecdsa;
 
     mbedtls_ecdsa_init( &ecdsa );
@@ -341,7 +340,7 @@ static int eckey_verify_rs_wrap( void *ctx, mbedtls_md_type_t md_alg,
                        const unsigned char *sig, size_t sig_len,
                        void *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     eckey_restart_ctx *rs = rs_ctx;
 
     /* Should never happen */
@@ -366,7 +365,7 @@ static int eckey_sign_rs_wrap( void *ctx, mbedtls_md_type_t md_alg,
                    int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
                        void *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     eckey_restart_ctx *rs = rs_ctx;
 
     /* Should never happen */
@@ -491,7 +490,7 @@ static int ecdsa_can_do( mbedtls_pk_type_t type )
 static int extract_ecdsa_sig_int( unsigned char **from, const unsigned char *end,
                                   unsigned char *to, size_t to_len )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t unpadded_len, padding_len;
 
     if( ( ret = mbedtls_asn1_get_tag( from, end, &unpadded_len,
@@ -525,7 +524,7 @@ static int extract_ecdsa_sig_int( unsigned char **from, const unsigned char *end
 static int extract_ecdsa_sig( unsigned char **p, const unsigned char *end,
                               unsigned char *sig, size_t int_size )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t tmp_size;
 
     if( ( ret = mbedtls_asn1_get_tag( p, end, &tmp_size,
@@ -542,12 +541,11 @@ static int extract_ecdsa_sig( unsigned char **p, const unsigned char *end,
     return( 0 );
 }
 
-static int ecdsa_verify_wrap( void *ctx_arg, mbedtls_md_type_t md_alg,
+static int ecdsa_verify_wrap( void *ctx, mbedtls_md_type_t md_alg,
                        const unsigned char *hash, size_t hash_len,
                        const unsigned char *sig, size_t sig_len )
 {
-    mbedtls_ecdsa_context *ctx = ctx_arg;
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
     psa_key_handle_t key_handle = 0;
     psa_status_t status;
@@ -558,10 +556,9 @@ static int ecdsa_verify_wrap( void *ctx_arg, mbedtls_md_type_t md_alg,
     unsigned char *p;
     mbedtls_pk_info_t pk_info = mbedtls_eckey_info;
     psa_algorithm_t psa_sig_md, psa_md;
-    size_t curve_bits;
-    psa_ecc_curve_t curve =
-        mbedtls_ecc_group_to_psa( ctx->grp.id, &curve_bits );
-    const size_t signature_part_size = ( ctx->grp.nbits + 7 ) / 8;
+    psa_ecc_curve_t curve = mbedtls_psa_translate_ecc_group(
+                            ( (mbedtls_ecdsa_context *) ctx )->grp.id );
+    const size_t signature_part_size = ( ( (mbedtls_ecdsa_context *) ctx )->grp.nbits + 7 ) / 8;
 
     if( curve == 0 )
         return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
@@ -581,7 +578,7 @@ static int ecdsa_verify_wrap( void *ctx_arg, mbedtls_md_type_t md_alg,
     psa_sig_md = PSA_ALG_ECDSA( psa_md );
 
     psa_set_key_type( &attributes, PSA_KEY_TYPE_ECC_PUBLIC_KEY( curve ) );
-    psa_set_key_usage_flags( &attributes, PSA_KEY_USAGE_VERIFY_HASH );
+    psa_set_key_usage_flags( &attributes, PSA_KEY_USAGE_VERIFY );
     psa_set_key_algorithm( &attributes, psa_sig_md );
 
     status = psa_import_key( &attributes,
@@ -608,9 +605,9 @@ static int ecdsa_verify_wrap( void *ctx_arg, mbedtls_md_type_t md_alg,
         goto cleanup;
     }
 
-    if( psa_verify_hash( key_handle, psa_sig_md,
-                         hash, hash_len,
-                         buf, 2 * signature_part_size )
+    if( psa_asymmetric_verify( key_handle, psa_sig_md,
+                               hash, hash_len,
+                               buf, 2 * signature_part_size )
          != PSA_SUCCESS )
     {
          ret = MBEDTLS_ERR_ECP_VERIFY_FAILED;
@@ -633,7 +630,7 @@ static int ecdsa_verify_wrap( void *ctx, mbedtls_md_type_t md_alg,
                        const unsigned char *hash, size_t hash_len,
                        const unsigned char *sig, size_t sig_len )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     ((void) md_alg);
 
     ret = mbedtls_ecdsa_read_signature( (mbedtls_ecdsa_context *) ctx,
@@ -661,7 +658,7 @@ static int ecdsa_verify_rs_wrap( void *ctx, mbedtls_md_type_t md_alg,
                        const unsigned char *sig, size_t sig_len,
                        void *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     ((void) md_alg);
 
     ret = mbedtls_ecdsa_read_signature_restartable(
@@ -777,8 +774,6 @@ static int rsa_alt_sign_wrap( void *ctx, mbedtls_md_type_t md_alg,
 #endif /* SIZE_MAX > UINT_MAX */
 
     *sig_len = rsa_alt->key_len_func( rsa_alt->key );
-    if( *sig_len > MBEDTLS_PK_SIGNATURE_MAX_SIZE )
-        return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
 
     return( rsa_alt->sign_func( rsa_alt->key, f_rng, p_rng, MBEDTLS_RSA_PRIVATE,
                 md_alg, (unsigned int) hash_len, hash, sig ) );
@@ -807,7 +802,7 @@ static int rsa_alt_check_pair( const void *pub, const void *prv )
     unsigned char sig[MBEDTLS_MPI_MAX_SIZE];
     unsigned char hash[32];
     size_t sig_len = 0;
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
 
     if( rsa_alt_get_bitlen( prv ) != rsa_get_bitlen( pub ) )
         return( MBEDTLS_ERR_RSA_KEY_CHECK_FAILED );
@@ -928,7 +923,7 @@ static int pk_opaque_can_do( mbedtls_pk_type_t type )
 static int asn1_write_mpibuf( unsigned char **p, unsigned char *start,
                               size_t n_len )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t len = 0;
 
     if( (size_t)( *p - start ) < n_len )
@@ -980,7 +975,7 @@ static int asn1_write_mpibuf( unsigned char **p, unsigned char *start,
 static int pk_ecdsa_sig_asn1_from_psa( unsigned char *sig, size_t *sig_len,
                                        size_t buf_len )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t len = 0;
     const size_t rs_len = *sig_len / 2;
     unsigned char *p = sig + buf_len;
@@ -1022,12 +1017,10 @@ static int pk_opaque_sign_wrap( void *ctx, mbedtls_md_type_t md_alg,
         return( mbedtls_psa_err_translate_pk( status ) );
     buf_len = MBEDTLS_ECDSA_MAX_SIG_LEN( psa_get_key_bits( &attributes ) );
     psa_reset_key_attributes( &attributes );
-    if( buf_len > MBEDTLS_PK_SIGNATURE_MAX_SIZE )
-        return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
 
     /* make the signature */
-    status = psa_sign_hash( *key, alg, hash, hash_len,
-                            sig, buf_len, sig_len );
+    status = psa_asymmetric_sign( *key, alg, hash, hash_len,
+                                        sig, buf_len, sig_len );
     if( status != PSA_SUCCESS )
         return( mbedtls_psa_err_translate_pk( status ) );
 

@@ -31,7 +31,6 @@
 #include "mbedtls/asn1.h"
 #include "mbedtls/oid.h"
 #include "mbedtls/platform_util.h"
-#include "mbedtls/error.h"
 
 #include <string.h>
 
@@ -131,7 +130,7 @@ int mbedtls_pk_load_file( const char *path, unsigned char **buf, size_t *n )
 int mbedtls_pk_parse_keyfile( mbedtls_pk_context *ctx,
                       const char *path, const char *pwd )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t n;
     unsigned char *buf;
 
@@ -158,7 +157,7 @@ int mbedtls_pk_parse_keyfile( mbedtls_pk_context *ctx,
  */
 int mbedtls_pk_parse_public_keyfile( mbedtls_pk_context *ctx, const char *path )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t n;
     unsigned char *buf;
 
@@ -189,7 +188,7 @@ int mbedtls_pk_parse_public_keyfile( mbedtls_pk_context *ctx, const char *path )
 static int pk_get_ecparams( unsigned char **p, const unsigned char *end,
                             mbedtls_asn1_buf *params )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
 
     if ( end - *p < 1 )
         return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT +
@@ -244,7 +243,7 @@ static int pk_get_ecparams( unsigned char **p, const unsigned char *end,
  */
 static int pk_group_from_specified( const mbedtls_asn1_buf *params, mbedtls_ecp_group *grp )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     unsigned char *p = params->p;
     const unsigned char * const end = params->p + params->len;
     const unsigned char *end_field, *end_curve;
@@ -434,7 +433,7 @@ cleanup:
 static int pk_group_id_from_specified( const mbedtls_asn1_buf *params,
                                        mbedtls_ecp_group_id *grp_id )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_ecp_group grp;
 
     mbedtls_ecp_group_init( &grp );
@@ -461,7 +460,7 @@ cleanup:
  */
 static int pk_use_ecparams( const mbedtls_asn1_buf *params, mbedtls_ecp_group *grp )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_ecp_group_id grp_id;
 
     if( params->tag == MBEDTLS_ASN1_OID )
@@ -501,7 +500,7 @@ static int pk_use_ecparams( const mbedtls_asn1_buf *params, mbedtls_ecp_group *g
 static int pk_get_ecpubkey( unsigned char **p, const unsigned char *end,
                             mbedtls_ecp_keypair *key )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
 
     if( ( ret = mbedtls_ecp_point_read_binary( &key->grp, &key->Q,
                     (const unsigned char *) *p, end - *p ) ) == 0 )
@@ -529,7 +528,7 @@ static int pk_get_rsapubkey( unsigned char **p,
                              const unsigned char *end,
                              mbedtls_rsa_context *rsa )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t len;
 
     if( ( ret = mbedtls_asn1_get_tag( p, end, &len,
@@ -584,7 +583,7 @@ static int pk_get_pk_alg( unsigned char **p,
                           const unsigned char *end,
                           mbedtls_pk_type_t *pk_alg, mbedtls_asn1_buf *params )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_asn1_buf alg_oid;
 
     memset( params, 0, sizeof(mbedtls_asn1_buf) );
@@ -616,7 +615,7 @@ static int pk_get_pk_alg( unsigned char **p,
 int mbedtls_pk_parse_subpubkey( unsigned char **p, const unsigned char *end,
                         mbedtls_pk_context *pk )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t len;
     mbedtls_asn1_buf alg_params;
     mbedtls_pk_type_t pk_alg = MBEDTLS_PK_NONE;
@@ -679,32 +678,6 @@ int mbedtls_pk_parse_subpubkey( unsigned char **p, const unsigned char *end,
 
 #if defined(MBEDTLS_RSA_C)
 /*
- * Wrapper around mbedtls_asn1_get_mpi() that rejects zero.
- *
- * The value zero is:
- * - never a valid value for an RSA parameter
- * - interpreted as "omitted, please reconstruct" by mbedtls_rsa_complete().
- *
- * Since values can't be omitted in PKCS#1, passing a zero value to
- * rsa_complete() would be incorrect, so reject zero values early.
- */
-static int asn1_get_nonzero_mpi( unsigned char **p,
-                                 const unsigned char *end,
-                                 mbedtls_mpi *X )
-{
-    int ret;
-
-    ret = mbedtls_asn1_get_mpi( p, end, X );
-    if( ret != 0 )
-        return( ret );
-
-    if( mbedtls_mpi_cmp_int( X, 0 ) == 0 )
-        return( MBEDTLS_ERR_PK_KEY_INVALID_FORMAT );
-
-    return( 0 );
-}
-
-/*
  * Parse a PKCS#1 encoded private RSA key
  */
 static int pk_parse_key_pkcs1_der( mbedtls_rsa_context *rsa,
@@ -756,84 +729,54 @@ static int pk_parse_key_pkcs1_der( mbedtls_rsa_context *rsa,
     }
 
     /* Import N */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = mbedtls_rsa_import( rsa, &T, NULL, NULL,
-                                        NULL, NULL ) ) != 0 )
+    if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
+                                      MBEDTLS_ASN1_INTEGER ) ) != 0 ||
+        ( ret = mbedtls_rsa_import_raw( rsa, p, len, NULL, 0, NULL, 0,
+                                        NULL, 0, NULL, 0 ) ) != 0 )
         goto cleanup;
+    p += len;
 
     /* Import E */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = mbedtls_rsa_import( rsa, NULL, NULL, NULL,
-                                        NULL, &T ) ) != 0 )
+    if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
+                                      MBEDTLS_ASN1_INTEGER ) ) != 0 ||
+        ( ret = mbedtls_rsa_import_raw( rsa, NULL, 0, NULL, 0, NULL, 0,
+                                        NULL, 0, p, len ) ) != 0 )
         goto cleanup;
+    p += len;
 
     /* Import D */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = mbedtls_rsa_import( rsa, NULL, NULL, NULL,
-                                        &T, NULL ) ) != 0 )
+    if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
+                                      MBEDTLS_ASN1_INTEGER ) ) != 0 ||
+        ( ret = mbedtls_rsa_import_raw( rsa, NULL, 0, NULL, 0, NULL, 0,
+                                        p, len, NULL, 0 ) ) != 0 )
         goto cleanup;
+    p += len;
 
     /* Import P */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = mbedtls_rsa_import( rsa, NULL, &T, NULL,
-                                        NULL, NULL ) ) != 0 )
+    if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
+                                      MBEDTLS_ASN1_INTEGER ) ) != 0 ||
+        ( ret = mbedtls_rsa_import_raw( rsa, NULL, 0, p, len, NULL, 0,
+                                        NULL, 0, NULL, 0 ) ) != 0 )
         goto cleanup;
+    p += len;
 
     /* Import Q */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = mbedtls_rsa_import( rsa, NULL, NULL, &T,
-                                        NULL, NULL ) ) != 0 )
+    if( ( ret = mbedtls_asn1_get_tag( &p, end, &len,
+                                      MBEDTLS_ASN1_INTEGER ) ) != 0 ||
+        ( ret = mbedtls_rsa_import_raw( rsa, NULL, 0, NULL, 0, p, len,
+                                        NULL, 0, NULL, 0 ) ) != 0 )
+        goto cleanup;
+    p += len;
+
+    /* Complete the RSA private key */
+    if( ( ret = mbedtls_rsa_complete( rsa ) ) != 0 )
         goto cleanup;
 
-#if !defined(MBEDTLS_RSA_NO_CRT) && !defined(MBEDTLS_RSA_ALT)
-    /*
-    * The RSA CRT parameters DP, DQ and QP are nominally redundant, in
-    * that they can be easily recomputed from D, P and Q. However by
-    * parsing them from the PKCS1 structure it is possible to avoid
-    * recalculating them which both reduces the overhead of loading
-    * RSA private keys into memory and also avoids side channels which
-    * can arise when computing those values, since all of D, P, and Q
-    * are secret. See https://eprint.iacr.org/2020/055 for a
-    * description of one such attack.
-    */
-
-    /* Import DP */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = mbedtls_mpi_copy( &rsa->DP, &T ) ) != 0 )
-       goto cleanup;
-
-    /* Import DQ */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = mbedtls_mpi_copy( &rsa->DQ, &T ) ) != 0 )
-       goto cleanup;
-
-    /* Import QP */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = mbedtls_mpi_copy( &rsa->QP, &T ) ) != 0 )
-       goto cleanup;
-
-#else
-    /* Verify existance of the CRT params */
-    if( ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 ||
-        ( ret = asn1_get_nonzero_mpi( &p, end, &T ) ) != 0 )
-       goto cleanup;
-#endif
-
-    /* rsa_complete() doesn't complete anything with the default
-     * implementation but is still called:
-     * - for the benefit of alternative implementation that may want to
-     *   pre-compute stuff beyond what's provided (eg Montgomery factors)
-     * - as is also sanity-checks the key
-     *
-     * Furthermore, we also check the public part for consistency with
-     * mbedtls_pk_parse_pubkey(), as it includes size minima for example.
-     */
-    if( ( ret = mbedtls_rsa_complete( rsa ) ) != 0 ||
-        ( ret = mbedtls_rsa_check_pubkey( rsa ) ) != 0 )
-    {
+    /* Check optional parameters */
+    if( ( ret = mbedtls_asn1_get_mpi( &p, end, &T ) ) != 0 ||
+        ( ret = mbedtls_asn1_get_mpi( &p, end, &T ) ) != 0 ||
+        ( ret = mbedtls_asn1_get_mpi( &p, end, &T ) ) != 0 )
         goto cleanup;
-    }
 
     if( p != end )
     {
@@ -868,7 +811,7 @@ static int pk_parse_key_sec1_der( mbedtls_ecp_keypair *eck,
                                   const unsigned char *key,
                                   size_t keylen )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     int version, pubkey_done;
     size_t len;
     mbedtls_asn1_buf params;
@@ -1221,7 +1164,7 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
                   const unsigned char *key, size_t keylen,
                   const unsigned char *pwd, size_t pwdlen )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     const mbedtls_pk_info_t *pk_info;
 #if defined(MBEDTLS_PEM_PARSE_C)
     size_t len;
@@ -1433,7 +1376,7 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *pk,
 int mbedtls_pk_parse_public_key( mbedtls_pk_context *ctx,
                          const unsigned char *key, size_t keylen )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     unsigned char *p;
 #if defined(MBEDTLS_RSA_C)
     const mbedtls_pk_info_t *pk_info;

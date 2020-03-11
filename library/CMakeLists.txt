@@ -45,6 +45,7 @@ set(src_crypto
     md2.c
     md4.c
     md5.c
+    md_wrap.c
     memory_buffer_alloc.c
     nist_kw.c
     oid.c
@@ -157,7 +158,7 @@ endif(USE_STATIC_MBEDTLS_LIBRARY)
 
 if(USE_SHARED_MBEDTLS_LIBRARY)
     add_library(mbedcrypto SHARED ${src_crypto})
-    set_target_properties(mbedcrypto PROPERTIES VERSION 2.21.0 SOVERSION 4)
+    set_target_properties(mbedcrypto PROPERTIES VERSION 2.17.0 SOVERSION 3)
     target_link_libraries(mbedcrypto ${libs})
     target_include_directories(mbedcrypto
         PUBLIC ${MBEDTLS_DIR}/include/

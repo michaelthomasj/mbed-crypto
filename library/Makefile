@@ -36,7 +36,7 @@ LOCAL_CFLAGS += -fPIC -fpic
 endif
 endif
 
-SOEXT_CRYPTO=so.4
+SOEXT_CRYPTO=so.3
 
 # Set AR_DASH= (empty string) to use an ar implementation that does not accept
 # the - prefix for command line options (e.g. llvm-ar)
@@ -74,7 +74,7 @@ OBJS_CRYPTO=	aes.o		aesni.o		arc4.o		\
 		gcm.o		havege.o			\
 		hkdf.o						\
 		hmac_drbg.o	md.o		md2.o		\
-		md4.o		md5.o				\
+		md4.o		md5.o		md_wrap.o	\
 		memory_buffer_alloc.o		nist_kw.o	\
 		oid.o		padlock.o	pem.o		\
 		pk.o		pk_wrap.o	pkcs12.o	\
@@ -146,11 +146,9 @@ libmbedcrypto.dll: $(OBJS_CRYPTO)
 	echo "  LD    $@"
 	$(CC) -shared -Wl,-soname,$@ -Wl,--out-implib,$@.a -o $@ $(OBJS_CRYPTO) -lws2_32 -lwinmm -lgdi32 -static-libgcc $(LOCAL_LDFLAGS) $(LDFLAGS)
 
-libmbedcrypto.$(DLEXT): | libmbedcrypto.a
-
 .c.o:
 	echo "  CC    $<"
-	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) -o $@ -c $<
+	$(CC) $(LOCAL_CFLAGS) $(CFLAGS) -c $< -o $@
 
 clean:
 ifndef WINDOWS

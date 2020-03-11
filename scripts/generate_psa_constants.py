@@ -61,7 +61,7 @@ static int psa_snprint_key_type(char *buffer, size_t buffer_size,
     default:
         %(key_type_code)s{
             return snprintf(buffer, buffer_size,
-                            "0x%%04x", (unsigned) type);
+                            "0x%%08lx", (unsigned long) type);
         }
         break;
     }
@@ -205,13 +205,9 @@ class MacroCollector:
         self.key_usages = set()
 
     # "#define" followed by a macro name with either no parameters
-    # or a single parameter and a non-empty expansion.
-    # Grab the macro name in group 1, the parameter name if any in group 2
-    # and the expansion in group 3.
-    _define_directive_re = re.compile(r'\s*#\s*define\s+(\w+)' +
-                                      r'(?:\s+|\((\w+)\)\s*)' +
-                                      r'(.+)')
-    _deprecated_definition_re = re.compile(r'\s*MBEDTLS_DEPRECATED')
+    # or a single parameter. Grab the macro name in group 1, the
+    # parameter name if any in group 2 and the definition in group 3.
+    definition_re = re.compile(r'\s*#\s*define\s+(\w+)(?:\s+|\((\w+)\)\s*)(.+)(?:/[*/])?')
 
     def read_line(self, line):
         """Parse a C header line and record the PSA identifier it defines if any.
@@ -219,21 +215,24 @@ class MacroCollector:
         (up to non-significant whitespace) and skips all non-matching lines.
         """
         # pylint: disable=too-many-branches
-        m = re.match(self._define_directive_re, line)
+        m = re.match(self.definition_re, line)
         if not m:
             return
-        name, parameter, expansion = m.groups()
-        expansion = re.sub(r'/\*.*?\*/|//.*', r' ', expansion)
-        if re.match(self._deprecated_definition_re, expansion):
-            # Skip deprecated values, which are assumed to be
-            # backward compatibility aliases that share
-            # numerical values with non-deprecated values.
-            return
+        name, parameter, definition = m.groups()
         if name.endswith('_FLAG') or name.endswith('MASK'):
             # Macro only to build actual values
             return
         elif (name.startswith('PSA_ERROR_') or name == 'PSA_SUCCESS') \
            and not parameter:
+            if name in ['PSA_ERROR_UNKNOWN_ERROR',
+                        'PSA_ERROR_OCCUPIED_SLOT',
+                        'PSA_ERROR_EMPTY_SLOT',
+                        'PSA_ERROR_INSUFFICIENT_CAPACITY',
+                       ]:
+                # Ad hoc skipping of deprecated error codes, which share
+                # numerical values with non-deprecated error codes
+                return
+
             self.statuses.add(name)
         elif name.startswith('PSA_KEY_TYPE_') and not parameter:
             self.key_types.add(name)
@@ -252,10 +251,10 @@ class MacroCollector:
                 return
             self.algorithms.add(name)
             # Ad hoc detection of hash algorithms
-            if re.search(r'0x010000[0-9A-Fa-f]{2}', expansion):
+            if re.search(r'0x010000[0-9A-Fa-f]{2}', definition):
                 self.hash_algorithms.add(name)
             # Ad hoc detection of key agreement algorithms
-            if re.search(r'0x30[0-9A-Fa-f]{2}0000', expansion):
+            if re.search(r'0x30[0-9A-Fa-f]{2}0000', definition):
                 self.ka_algorithms.add(name)
         elif name.startswith('PSA_ALG_') and parameter == 'hash_alg':
             if name in ['PSA_ALG_DSA', 'PSA_ALG_ECDSA']:
@@ -270,16 +269,8 @@ class MacroCollector:
             # Other macro without parameter
             return
 
-    _nonascii_re = re.compile(rb'[^\x00-\x7f]+')
-    _continued_line_re = re.compile(rb'\\\r?\n\Z')
     def read_file(self, header_file):
         for line in header_file:
-            m = re.search(self._continued_line_re, line)
-            while m:
-                cont = next(header_file)
-                line = line[:m.start(0)] + cont
-                m = re.search(self._continued_line_re, line)
-            line = re.sub(self._nonascii_re, rb'', line).decode('ascii')
             self.read_line(line)
 
     @staticmethod
@@ -385,7 +376,7 @@ class MacroCollector:
 def generate_psa_constants(header_file_names, output_file_name):
     collector = MacroCollector()
     for header_file_name in header_file_names:
-        with open(header_file_name, 'rb') as header_file:
+        with open(header_file_name) as header_file:
             collector.read_file(header_file)
     temp_file_name = output_file_name + '.tmp'
     with open(temp_file_name, 'w') as output_file:
