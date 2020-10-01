@@ -52,6 +52,7 @@ extern "C" {
  *                      It must not contain any key material yet.
  * \param[in] data      Buffer containing the key material to parse and import.
  * \param data_length   Size of \p data in bytes.
+ * \param write_to_persistent_memory   Specify if the imported key needs to be written to persistent memory.
  *
  * \retval PSA_SUCCESS
  * \retval PSA_ERROR_INVALID_ARGUMENT
@@ -61,7 +62,8 @@ extern "C" {
  */
 psa_status_t psa_import_key_into_slot_vendor( psa_key_slot_t *slot,
                                        const uint8_t *data,
-                                       size_t data_length );
+                                       size_t data_length, 
+                                       bool write_to_persistent_memory);
 
 /**
  * \brief Generate a vendor defined key or key pair.
@@ -111,6 +113,20 @@ psa_status_t psa_generate_key_vendor(psa_key_slot_t * slot,
  * \retval Implementation dependent
  */
 psa_status_t psa_generate_symmetric_vendor(psa_key_type_t type, size_t bits, uint8_t * output, size_t output_size);
+
+/** Finalize the creation of a vendor defined key once its key material has been set.
+ *
+ * This entails writing the key to persistent storage.
+ *
+ * This function is to be called only by psa_finish_key_creation(). 
+ *
+ * \param[in,out] slot  Pointer to the slot with key material.
+ *
+ * \retval #PSA_SUCCESS
+ *         The key was successfully created. The handle is now valid.
+ * \return If this function fails, the key slot is an invalid state.
+ */
+psa_status_t psa_finish_key_creation_vendor(psa_key_slot_t *slot);
 
 /**
  * \brief Perform vendor specific setup for cipher operations.
