@@ -36,7 +36,6 @@
 
 #include "mbedtls/ecdh.h"
 #include "mbedtls/platform_util.h"
-#include "mbedtls/error.h"
 
 #include <string.h>
 
