@@ -83,7 +83,7 @@ static int ecdh_gen_public_restartable( mbedtls_ecp_group *grp,
                     void *p_rng,
                     mbedtls_ecp_restart_ctx *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
 
     /* If multiplication is in progress, we already generated a privkey */
 #if defined(MBEDTLS_ECP_RESTARTABLE)
@@ -124,7 +124,7 @@ static int ecdh_compute_shared_restartable( mbedtls_ecp_group *grp,
                          void *p_rng,
                          mbedtls_ecp_restart_ctx *rs_ctx )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_ecp_point P;
 
     mbedtls_ecp_point_init( &P );
@@ -202,7 +202,7 @@ void mbedtls_ecdh_init( mbedtls_ecdh_context *ctx )
 static int ecdh_setup_internal( mbedtls_ecdh_context_mbed *ctx,
                                 mbedtls_ecp_group_id grp_id )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
 
     ret = mbedtls_ecp_group_load( &ctx->grp, grp_id );
     if( ret != 0 )
@@ -310,7 +310,7 @@ static int ecdh_make_params_internal( mbedtls_ecdh_context_mbed *ctx,
                                       void *p_rng,
                                       int restart_enabled )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     size_t grp_len, pt_len;
 #if defined(MBEDTLS_ECP_RESTARTABLE)
     mbedtls_ecp_restart_ctx *rs_ctx = NULL;
@@ -417,7 +417,7 @@ int mbedtls_ecdh_read_params( mbedtls_ecdh_context *ctx,
                               const unsigned char **buf,
                               const unsigned char *end )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     mbedtls_ecp_group_id grp_id;
     ECDH_VALIDATE_RET( ctx != NULL );
     ECDH_VALIDATE_RET( buf != NULL );
@@ -454,7 +454,7 @@ static int ecdh_get_params_internal( mbedtls_ecdh_context_mbed *ctx,
                                      const mbedtls_ecp_keypair *key,
                                      mbedtls_ecdh_side side )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
 
     /* If it's not our key, just import the public part as Qp */
     if( side == MBEDTLS_ECDH_THEIRS )
@@ -478,7 +478,7 @@ int mbedtls_ecdh_get_params( mbedtls_ecdh_context *ctx,
                              const mbedtls_ecp_keypair *key,
                              mbedtls_ecdh_side side )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     ECDH_VALIDATE_RET( ctx != NULL );
     ECDH_VALIDATE_RET( key != NULL );
     ECDH_VALIDATE_RET( side == MBEDTLS_ECDH_OURS ||
@@ -533,7 +533,7 @@ static int ecdh_make_public_internal( mbedtls_ecdh_context_mbed *ctx,
                                       void *p_rng,
                                       int restart_enabled )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
 #if defined(MBEDTLS_ECP_RESTARTABLE)
     mbedtls_ecp_restart_ctx *rs_ctx = NULL;
 #endif
@@ -605,7 +605,7 @@ int mbedtls_ecdh_make_public( mbedtls_ecdh_context *ctx, size_t *olen,
 static int ecdh_read_public_internal( mbedtls_ecdh_context_mbed *ctx,
                                       const unsigned char *buf, size_t blen )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
     const unsigned char *p = buf;
 
     if( ( ret = mbedtls_ecp_tls_read_point( &ctx->grp, &ctx->Qp, &p,
@@ -655,7 +655,7 @@ static int ecdh_calc_secret_internal( mbedtls_ecdh_context_mbed *ctx,
                                       void *p_rng,
                                       int restart_enabled )
 {
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+    int ret;
 #if defined(MBEDTLS_ECP_RESTARTABLE)
     mbedtls_ecp_restart_ctx *rs_ctx = NULL;
 #endif
