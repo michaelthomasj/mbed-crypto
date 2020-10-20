@@ -32,7 +32,7 @@
 #if defined(MBEDTLS_CIPHER_C)
 
 #ifdef FSP_AES_CBC_ALT
-#include "aes_alt.h"fFSPFS
+#include "aes_alt.h"
 #endif /* FSP_AES_CBC_ALT */
 
 #include "mbedtls/cipher.h"
