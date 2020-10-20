@@ -31,6 +31,10 @@
 
 #if defined(MBEDTLS_CIPHER_C)
 
+#ifdef FSP_AES_CBC_ALT
+#include "aes_alt.h"fFSPFS
+#endif /* FSP_AES_CBC_ALT */
+
 #include "mbedtls/cipher.h"
 #include "mbedtls/cipher_internal.h"
 #include "mbedtls/platform_util.h"
@@ -427,6 +431,41 @@ int mbedtls_cipher_set_iv( mbedtls_cipher_context_t *ctx,
         ctx->iv_size = actual_iv_size;
     }
 
+#ifdef FSP_AES_CBC_ALT
+    uint32_t cmd_ordinal;
+    fsp_err_t cbc_alt_status = FSP_ERR_CRYPTO_SCE_FAIL;
+    mbedtls_aes_context *cbc_alt_aes_ctx = ctx->cipher_ctx;
+    fsp_sce_algorithm_t cbc_alt_alg = cbc_alt_aes_ctx->alg;
+
+    mbedtls_operation_t local_op = ctx->operation;
+    if(cbc_alt_alg == FSP_SCE_ALG_CBC_NO_PADDING )
+    {
+
+        if( local_op == MBEDTLS_DECRYPT  )
+        {
+            cmd_ordinal = change_endian_long(0x00000003u);
+        }
+        else if( local_op == MBEDTLS_ENCRYPT )
+        {
+            cmd_ordinal = change_endian_long(0x00000002u);
+        }
+
+        if( cbc_alt_aes_ctx->nr == 14 )
+        {
+            cbc_alt_status = HW_SCE_Aes256EncryptDecryptInitSub(&cmd_ordinal, cbc_alt_aes_ctx->buf, iv);
+        }
+        else
+        {
+            cbc_alt_status = HW_SCE_Aes128EncryptDecryptInitSub(&cmd_ordinal, cbc_alt_aes_ctx->buf, iv);
+        }
+        if(cbc_alt_status != FSP_SUCCESS)
+        {
+            return -1;
+        }
+
+    }
+#endif /* FSP_AES_CBC_ALT */
+
     return( 0 );
 }
 
@@ -527,6 +566,10 @@ int mbedtls_cipher_update( mbedtls_cipher_context_t *ctx, const unsigned char *i
 
     *olen = 0;
     block_size = mbedtls_cipher_get_block_size( ctx );
+    if ( 0 == block_size )
+    {
+        return( MBEDTLS_ERR_CIPHER_INVALID_CONTEXT );
+    }
 
     if( ctx->cipher_info->mode == MBEDTLS_MODE_ECB )
     {
@@ -561,11 +604,6 @@ int mbedtls_cipher_update( mbedtls_cipher_context_t *ctx, const unsigned char *i
                                            ilen, input, output ) );
     }
 #endif
-
-    if ( 0 == block_size )
-    {
-        return( MBEDTLS_ERR_CIPHER_INVALID_CONTEXT );
-    }
 
     if( input == output &&
        ( ctx->unprocessed_len != 0 || ilen % block_size ) )
@@ -625,11 +663,6 @@ int mbedtls_cipher_update( mbedtls_cipher_context_t *ctx, const unsigned char *i
          */
         if( 0 != ilen )
         {
-            if( 0 == block_size )
-            {
-                return( MBEDTLS_ERR_CIPHER_INVALID_CONTEXT );
-            }
-
             /* Encryption: only cache partial blocks
              * Decryption w/ padding: always keep at least one whole block
              * Decryption w/o padding: only cache partial blocks
@@ -983,6 +1016,25 @@ int mbedtls_cipher_finish( mbedtls_cipher_context_t *ctx,
                 if( 0 != ctx->unprocessed_len )
                     return( MBEDTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED );
 
+#ifdef FSP_AES_CBC_ALT
+    fsp_err_t cbc_alt_status = FSP_ERR_CRYPTO_SCE_FAIL;
+    mbedtls_aes_context *cbc_alt_aes_ctx  = ctx->cipher_ctx;
+    if(cbc_alt_aes_ctx->alg == FSP_SCE_ALG_CBC_NO_PADDING)
+    {
+        if( cbc_alt_aes_ctx->nr == 14)
+        {
+            cbc_alt_status = HW_SCE_Aes256EncryptDecryptFinalSub();
+        }
+        else
+        {
+            cbc_alt_status = HW_SCE_Aes128EncryptDecryptFinalSub();
+        }
+        if(cbc_alt_status != FSP_SUCCESS )
+        {
+            return -1;
+        }
+    }
+#endif /*FSP_AES_CBC_ALT */
                 return( 0 );
             }
 
